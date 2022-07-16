@@ -30,6 +30,20 @@ ConstructAPI() {
 	fi
 }
 
+TestAPIAvailability() {
+	
+	availabilityResonse=$(curl -s -o /dev/null -w "%{http_code}" http://${URL}:${PORT}/${APIPATH}/auth)
+
+	# test if http status code was 200 (OK)
+	if [ "${availabilityResonse}" = 200 ]; then
+		printf "%b" "API available at: http://${URL}:${PORT}/${APIPATH}\n\n"
+	else
+		echo "API not available: http://${URL}:${PORT}/${APIPATH}"
+		echo "Exiting."
+		exit 1
+	fi
+}
+
 Authenthication() {
 	# Try to authenticate
 	ChallengeResponse
@@ -150,13 +164,17 @@ while getopts ":u:p:a:s:h" args; do
 	esac
 done
 
-# Traps for graceful shutdown
-# https://unix.stackexchange.com/a/681201
-trap clean_exit EXIT
-trap sig_cleanup INT QUIT TERM
-
 # Construct FTL's API address depending on the arguments supplied
 ConstructAPI
+
+# Test if the authentication endpoint is availabe
+TestAPIAvailability
+
+# Traps for graceful shutdown
+# https://unix.stackexchange.com/a/681201
+# Trap after TestAPIAvailability to avoid (unnecessary) DeleteSession
+trap clean_exit EXIT
+trap sig_cleanup INT QUIT TERM
 
 # Authenticate with the server
 Authenthication
