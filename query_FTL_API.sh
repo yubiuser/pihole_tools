@@ -15,6 +15,8 @@ usage()
     echo " -a <api>     			Path where your Pi-hole's API is hosted (default: api)"
 	echo " -s <secret password>		Your Pi-hole password, required to access the API"	
 	echo ""
+	echo "End script with Ctrl+C"
+	echo ""
 }
 
 ConstructAPI() {
@@ -38,7 +40,7 @@ TestAPIAvailability() {
 	if [ "${availabilityResonse}" = 200 ]; then
 		printf "%b" "API available at: http://${URL}:${PORT}/${APIPATH}\n\n"
 	else
-		echo "API not available: http://${URL}:${PORT}/${APIPATH}"
+		echo "API not available at: http://${URL}:${PORT}/${APIPATH}"
 		echo "Exiting."
 		exit 1
 	fi
@@ -62,7 +64,6 @@ Authenthication() {
 		# this workaround changes the terminal characteristics to not echo input and later rests this option
 		# credits https://stackoverflow.com/a/4316765
 
-		stty_orig=$(stty -g)
 		stty -echo
 		read -r password
 		stty "${stty_orig}"
@@ -78,15 +79,18 @@ Authenthication() {
 }
 
 DeleteSession() {
-	
-	# Try to delte the session. Omitt the output, but get the http status code
-	deleteResponse=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE http://${URL}:${PORT}/${APIPATH}/auth  -H "Accept: application/json" -H "sid: ${SID}")
+	# if a valid Session exists (no password required or successful authenthication) and
+	# SID is not null (successful authenthication only), delete the session
+	if [ "${validSession}" = true ] && [ ! "${SID}" = null ]; then
+		# Try to delte the session. Omitt the output, but get the http status code
+		deleteResponse=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE http://${URL}:${PORT}/${APIPATH}/auth  -H "Accept: application/json" -H "sid: ${SID}")
 
-	case "${deleteResponse}" in
-        "200") printf "%b" "\nA session that was not created cannot be deleted (e.g., empty API password).\n";;
-        "401") printf "%b" "\nLogout attempt without a valid session. Unauthorized!\n";;
-        "410") printf "%b" "\nSession deleted.\n";;
-     esac;
+		case "${deleteResponse}" in
+        	"200") printf "%b" "\nA session that was not created cannot be deleted (e.g., empty API password).\n";;
+        	"401") printf "%b" "\nLogout attempt without a valid session. Unauthorized!\n";;
+        	"410") printf "%b" "\nSession successfully deleted.\n";;
+     	esac;
+	fi
 	
 }
 
@@ -137,8 +141,10 @@ clean_exit() {
     # reset trap for all signals to not interrupt clean_tempfiles() on any next signal
     trap '' EXIT INT QUIT TERM
 
-	# restore terminal settings
-    stty "${stty_orig}"
+	# restore terminal settings if they have been changed (e.g. user cancled script while at password  input prompt)
+    if [ "$(stty -g)" != "${stty_orig}" ]; then
+		stty "${stty_orig}"
+	fi
 
     #  Delete session from FTL server
     DeleteSession
@@ -164,17 +170,19 @@ while getopts ":u:p:a:s:h" args; do
 	esac
 done
 
+# Save current terminal settings (needed for later restore after password prompt)
+stty_orig=$(stty -g)
+
+# Traps for graceful shutdown
+# https://unix.stackexchange.com/a/681201
+trap clean_exit EXIT
+trap sig_cleanup INT QUIT TERM
+
 # Construct FTL's API address depending on the arguments supplied
 ConstructAPI
 
 # Test if the authentication endpoint is availabe
 TestAPIAvailability
-
-# Traps for graceful shutdown
-# https://unix.stackexchange.com/a/681201
-# Trap after TestAPIAvailability to avoid (unnecessary) DeleteSession
-trap clean_exit EXIT
-trap sig_cleanup INT QUIT TERM
 
 # Authenticate with the server
 Authenthication
