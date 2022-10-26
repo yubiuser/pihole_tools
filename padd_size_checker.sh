@@ -1,11 +1,6 @@
 #!/usr/bin/env sh
 
 SizeChecker(){
-    # adding a tiny delay here to to give the kernel a bit time to
-    # report new sizes correctly after a terminal resize
-    # this reduces "flickering" of GenerateSizeDependendOutput() items
-    # after a terminal re-size
-    sleep 0.1
     console_height=$(stty size | awk '{ print $1 }')
     console_width=$(stty size | awk '{ print $2 }')
 
@@ -41,26 +36,75 @@ SizeChecker(){
   fi
 }
 
-clear
-setterm -cursor off
-trap "{ setterm -cursor on ; echo "" ; exit 0 ; }" INT TERM EXIT
+GenerateOutput() {
+    # Clear the screen and move cursor to (0,0).
+    # This mimics the 'clear' command.
+    # https://vt100.net/docs/vt510-rm/ED.html
+    # https://vt100.net/docs/vt510-rm/CUP.html
+    # E3 extension `\e[3J` to clear the scrollback buffer (see 'man clear')
 
-while true; do
-    # Clear to end of screen (below the drawn dashboard)
-    tput ed
+    printf '\e[H\e[2J\e[3J'
 
-    # Move the cursor to top left of console to redraw
-    tput cup 0 0
-
-
-    console_width=$(tput cols)
-    console_height=$(tput lines)
-    SizeChecker
 
     echo "Columns: ${console_width}\033[0K"
     echo "Lines: ${console_height}\033[0K"
     echo ""
     echo "Padd_size ${padd_size}\033[0K"
+}
+
+CleanExit(){
+    # save the return code of the script
+    err=$?
+    #clear the line
+    printf '\e[0K\n'
+
+    # Show the cursor
+    # https://vt100.net/docs/vt510-rm/DECTCEM.html
+    printf '\e[?25h'
+
+    # if background sleep is running, kill it
+    # http://mywiki.wooledge.org/SignalTrap#When_is_the_signal_handled.3F
+    kill $sleepPID > /dev/null 2>&1
+
+    exit $err # exit the script with saved $?
+}
+
+TerminalResize(){
+    # if a terminal resize is trapped, kill the sleep function within the
+    # loop to trigger SizeChecker
+
+    kill $sleepPID > /dev/null 2>&1
+}
+
+######### MAIN #########
+
+# Hide the cursor.
+# https://vt100.net/docs/vt510-rm/DECTCEM.html
+printf '\e[?25l'
+
+# Trap on exit
+trap 'CleanExit' INT TERM EXIT
+
+# Trap the window resize signal (handle window resize events)
+trap 'TerminalResize' WINCH
+
+while :; do
+
+    SizeChecker
+    GenerateOutput
+
+    # Sleep infinity
+    # sending sleep in the background and wait for it
+    # this way the TerminalResize trap can kill the sleep
+    # and force a instant re-draw of the dashboard
+    # https://stackoverflow.com/questions/32041674/linux-how-to-kill-sleep
+    #
+    # saving the PID of the background sleep process to kill it on exit and resize
+    sleep infinity &
+    sleepPID=$!
+    wait $!
+
+    # when the sleep is killed by the trap, a new round starts
 
 done
 
