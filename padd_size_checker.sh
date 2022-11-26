@@ -4,36 +4,53 @@ SizeChecker(){
     console_height=$(stty size | awk '{ print $1 }')
     console_width=$(stty size | awk '{ print $2 }')
 
-  # Below Pico. Gives you nothing...
-  if [ "$console_width" -lt "20" ] || [ "$console_height" -lt "10" ]; then
-    # Nothing is this small, sorry
-    padd_size="ants"
-  # Below Nano. Gives you Pico.
-  elif [ "$console_width" -lt "24" ] || [ "$console_height" -lt "12" ]; then
-    padd_size="pico"
-  # Below Micro, Gives you Nano.
-  elif [ "$console_width" -lt "30" ] || [ "$console_height" -lt "16" ]; then
-    padd_size="nano"
-  # Below Mini. Gives you Micro.
-  elif [ "$console_width" -lt "40" ] || [ "$console_height" -lt "18" ]; then
-    padd_size="micro"
-  # Below Tiny. Gives you Mini.
-  elif [ "$console_width" -lt "53" ] || [ "$console_height" -lt "20" ]; then
-      padd_size="mini"
-  # Below Slim. Gives you Tiny.
-  elif [ "$console_width" -lt "60" ] || [ "$console_height" -lt "21" ]; then
-      padd_size="tiny"
-  # Below Regular. Gives you Slim.
-  elif [ "$console_width" -lt "80" ] || [ "$console_height" -lt "26" ]; then
-    if [ "$console_height" -lt "22" ]; then
-      padd_size="slim"
+    # Mega
+    if [ "$console_width" -ge "80" ] && [ "$console_height" -ge "26" ]; then
+        padd_size="mega"
+        width=80
+        height=26
+    # Below Mega. Gives you Regular.
+    elif [ "$console_width" -ge "60" ] && [ "$console_height" -ge "22" ]; then
+        padd_size="regular"
+        width=60
+        height=22
+    # Below Regular. Gives you Slim.
+    elif [ "$console_width" -ge "60" ] && [ "$console_height" -ge "21" ]; then
+        padd_size="slim"
+        width=60
+        height=21
+    # Below Slim. Gives you Tiny.
+    elif [ "$console_width" -ge "53" ] && [ "$console_height" -ge "20" ]; then
+        padd_size="tiny"
+        width=53
+        height=20
+    # Below Tiny. Gives you Mini.
+    elif [ "$console_width" -ge "40" ] && [ "$console_height" -ge "18" ]; then
+        padd_size="mini"
+        width=40
+        height=18
+    # Below Mini. Gives you Micro.
+    elif [ "$console_width" -ge "30" ] && [ "$console_height" -ge "16" ]; then
+        padd_size="micro"
+        width=30
+        height=16
+    # Below Micro, Gives you Nano.
+    elif [ "$console_width" -ge "24" ] && [ "$console_height" -ge "12" ]; then
+        padd_size="nano"
+        width=24
+        height=12
+    # Below Nano. Gives you Pico.
+    elif [ "$console_width" -ge "20" ] && [ "$console_height" -ge "10" ]; then
+        padd_size="pico"
+        width=20
+        height=10
+    # Below Pico. Gives you nothing...
     else
-      padd_size="regular"
+        # Nothing is this small, sorry
+        padd_size="ant"
+        width=0
+        height=0
     fi
-  # Mega
-  else
-    padd_size="mega"
-  fi
 }
 
 GenerateOutput() {
@@ -45,11 +62,37 @@ GenerateOutput() {
 
     printf '\e[H\e[2J\e[3J'
 
+    # draw the PADD field
+    row=1
+    column=1
+    while [ "$row" -le ${height} ]
+    do
+        while [ "$column" -le ${width} ]
+        do
+            if [ "$row" = 1 ] || [ "$row" = "${height}" ] || [ "$column" = 1 ] || [ "$column" = "${width}" ]; then
+                printf "*"
+            else
+                printf " "
+            fi
+            column=$((column+1))
+        done
+        # don't add a new line below the PADD field
+        if [ "$row" -lt "${height}" ]; then
+            echo
+        fi
+        column=1
+        row=$((row+1))
+    done
 
-    echo "Columns: ${console_width}\033[0K"
-    echo "Lines: ${console_height}\033[0K"
-    echo ""
-    echo "Padd_size ${padd_size}\033[0K"
+    # draw info within the PADD field
+    tput cup 2 2; printf "Console width: %s" "${console_width}"
+    tput cup 3 2; printf "Console height: %s" "${console_height}"
+    tput cup 4 2; printf "PADD width: %s" "${width}"
+    tput cup 5 2; printf "PADD height: %s" "${height}"
+    tput cup 6 2; printf "PADD size: %s" "${padd_size}"
+
+    # move the cursor to the lower rigth corner
+    tput cup $((height-1)) $((width-2))
 }
 
 CleanExit(){
@@ -64,7 +107,7 @@ CleanExit(){
 
     # if background sleep is running, kill it
     # http://mywiki.wooledge.org/SignalTrap#When_is_the_signal_handled.3F
-    kill $sleepPID > /dev/null 2>&1
+    kill "${sleepPID}" > /dev/null 2>&1
 
     exit $err # exit the script with saved $?
 }
@@ -73,7 +116,7 @@ TerminalResize(){
     # if a terminal resize is trapped, kill the sleep function within the
     # loop to trigger SizeChecker
 
-    kill $sleepPID > /dev/null 2>&1
+    kill "${sleepPID}" > /dev/null 2>&1
 }
 
 ######### MAIN #########
