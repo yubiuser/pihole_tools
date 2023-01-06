@@ -62,3 +62,20 @@ Request data from API endpoint:
 ```
 
 To interact with the `json` output I recommend `jq`. See [https://stedolan.github.io/jq/](https://stedolan.github.io/jq/)
+
+___
+
+The returned data can be processed further by appending the desired command to the API endpoint. So things like
+
+```shell
+/stats/summary | jq .queries.blocked
+/stats/summary > out.txt
+```
+
+will work.
+
+```shell
+Request data from API endpoint:
+/stats/summary | jq .queries.blocked
+272
+```

@@ -20,6 +20,14 @@ usage()
     echo ""
     echo "End script with Ctrl+C"
     echo ""
+    echo ""
+    echo "The returned data can be processed further by appending the desired command"
+    echo "to the API endpoint. So things like"
+    echo ""
+    echo "'/stats/summary | jq .queries.blocked'"
+    echo ""
+    echo "will work."
+    echo ""
 }
 
 ConstructAPI() {
@@ -157,6 +165,30 @@ clean_exit() {
     exit $err # exit the script with saved $?
 }
 
+QueryAPI() {
+    while true; do
+        local input endpoint the_rest data
+        printf "%b" "\nRequest data from API endpoint:\n"
+
+        # read the input and split it into $endpoint and $the_rest after the first space
+        read -r -e input
+        IFS=' ' read -r endpoint the_rest <<< "$input"
+
+        # save last input to history
+        history -s "$input"
+
+        data=$(GetFTLData "${endpoint}")
+
+        # if there was any command supplied run it on the returned data
+        if [ -n "${the_rest}" ]; then
+            eval 'echo ${data}' "${the_rest}"
+        else
+            # only print the API response
+            echo "${data}"
+        fi
+    done
+}
+
 
 ################################# Main ################response
 while getopts ":u:p:a:s:h" args; do
@@ -193,12 +225,6 @@ TestAPIAvailability
 # Authenticate with the server
 Authenthication
 
-while true; do
-    printf "%b" "\nRequest data from API endpoint:\n"
-    read -r -e endpoint
-
-    # save last input to history
-    history -s "$endpoint"
-    GetFTLData "${endpoint}"
-done
+# Query the API
+QueryAPI
 
