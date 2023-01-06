@@ -1,4 +1,7 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
+
+# read previous history
+history -r ftl_api_history
 
 usage()
 {
@@ -129,6 +132,9 @@ sig_cleanup() {
     # causing EXIT trap to be executed, so we trap EXIT after INT
     trap '' EXIT
 
+    # write history to file
+    history -w ftl_api_history
+
     (exit $err) # execute in a subshell just to pass $? to clean_exit()
     clean_exit
 }
@@ -189,7 +195,10 @@ Authenthication
 
 while true; do
     printf "%b" "\nRequest data from API endpoint:\n"
-    read -r endpoint
+    read -r -e endpoint
+
+    # save last input to history
+    history -s "$endpoint"
     GetFTLData "${endpoint}"
 done
 
