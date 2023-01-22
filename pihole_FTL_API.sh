@@ -170,8 +170,24 @@ ChallengeResponse() {
 }
 
 GetFTLData() {
-    data=$(curl -sS -X GET "http://${URL}:${PORT}/${APIPATH}$1" -H "Accept: application/json" -H "sid: ${SID}" )
-    echo "${data}"
+    local response
+    # get the data from querying the API as well as the http status code
+	response=$(curl -s -w "%{http_code}" -X GET "http://${URL}:${PORT}/${APIPATH}$1" -H "Accept: application/json" -H "sid: ${SID}" )
+
+    # status are the last 3 characters
+    status=$(printf %s "${response#"${response%???}"}")
+    # data is everything from repsonse without the last 3 characters
+    data=$(printf %s "${response%???}")
+
+    if [ "${status}" = 200 ]; then
+        echo "${data}"
+    elif [ "${status}" = 000 ]; then
+        # connection lost
+        echo "000"
+    elif [ "${status}" = 401 ]; then
+        # unauthorized
+        echo "401"
+    fi
 }
 
 # Called on signals INT QUIT TERM
@@ -222,12 +238,26 @@ QueryAPI() {
 
         data=$(GetFTLData "${endpoint}")
 
-        # if there was any command supplied run it on the returned data
-        if [ -n "${the_rest}" ]; then
-            eval 'echo ${data}' "${the_rest}"
+        # check if connection to FTL was lost
+        # GetFTLData() will return "000"
+        if [ "${data}" = 000 ]; then
+            printf "%b" "\nConection to FTL lost! Please re-establish connection.\n"
+        elif [ "${data}" = 401 ]; then
+            # check if a new authentication is required (e.g. after connection to FTL has re-established)
+            # GetFTLData() will return "401" if a 401 http status code is returned
+            # as $password should be set already, it should automatically re-authenticate
+            ChallengeResponse
+            printf "%b" "\nNeeded to re-authenticate. Please request endpoint again.\n"
         else
-            # only print the API response
-            echo "${data}"
+            # Data was returned
+
+            # if there was any command supplied run it on the returned data
+            if [ -n "${the_rest}" ]; then
+                eval 'echo ${data}' "${the_rest}"
+            else
+                # only print the API response
+                echo "${data}"
+            fi
         fi
     done
 }
