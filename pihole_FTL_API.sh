@@ -13,10 +13,10 @@ usage()
     echo "To connect to FTL's API use the following options"
     echo "The whole API URL will look like http://{url}:{port}/{api}"
     echo ""
-    echo " -u <URL|IP>  			URL or address of your Pi-hole (default: pi.hole)"
-    echo " -p <port>    			Port of your Pi-hole's API (default: 8080)"
-    echo " -a <api>     			Path where your Pi-hole's API is hosted (default: api)"
-    echo " -s <secret password>		Your Pi-hole password, required to access the API"
+    echo " -- server <URL|IP>  		        URL or address of your Pi-hole (default: pi.hole)"
+    echo " --port <port>    		        Port of your Pi-hole's API (default: 8080)"
+    echo " --api <api>     			        Path where your Pi-hole's API is hosted (default: api)"
+    echo " --secret <secret password>		Your Pi-hole password, required to access the API"
     echo ""
     echo "End script with Ctrl+C"
     echo ""
@@ -83,7 +83,7 @@ ConstructAPI() {
         URL=pi.hole
     fi
     if [ -z "${PORT}" ]; then
-        PORT=8080
+        PORT=80
     fi
     if [ -z "${APIPATH}" ]; then
         APIPATH=api
@@ -95,7 +95,7 @@ TestAPIAvailability() {
     availabilityResonse=$(curl -s -o /dev/null -w "%{http_code}" http://${URL}:${PORT}/${APIPATH}/auth)
 
     # test if http status code was 200 (OK)
-    if [ "${availabilityResonse}" = 200 ]; then
+    if [ "${availabilityResonse}" = 200 ] || [ "${availabilityResonse}" = 401 ]; then
         printf "%b" "API available at: http://${URL}:${PORT}/${APIPATH}\n\n"
     else
         echo "API not available at: http://${URL}:${PORT}/${APIPATH}"
@@ -106,7 +106,7 @@ TestAPIAvailability() {
 
 Authenthication() {
     # Try to authenticate
-    ChallengeResponse
+    LoginAPI
 
     while [ "${validSession}" = false ] || [ -z "${validSession}" ] ; do
         echo "Authentication failed."
@@ -124,7 +124,7 @@ Authenthication() {
         echo ""
 
         # Try to authenticate again
-        ChallengeResponse
+        LoginAPI
     done
 
     # Loop exited, authentication was successful
@@ -148,25 +148,18 @@ DeleteSession() {
 
 }
 
-ChallengeResponse() {
-    # Challenge-response authentication
+LoginAPI() {
+    sessionResponse="$(curl --silent -X POST http://${URL}:${PORT}/${APIPATH}/auth --data "{\"password\":\"${password}\"}" )"
 
-    # Compute password hash from user password
-    # Compute password hash twice to avoid rainbow table vulnerability
-    hash1=$(printf "%b" "$password" | sha256sum | sed 's/\s.*$//')
-    pwhash=$(printf "%b" "$hash1" | sha256sum | sed 's/\s.*$//')
+    if [ -z "${sessionResponse}" ]; then
+        echo "No response from FTL server. Please check connectivity and use the options to set the API URL"
+        echo "Usage: $0 [--server <URL>] [--port <port>] [--api <path>] "
+    exit 1
+  fi
 
-
-    # Get challenge from FTL
-    # Calculate response based on challenge and password hash
-    # Send response & get session response
-    challenge="$(curl --silent -X GET http://${URL}:${PORT}/${APIPATH}/auth | jq --raw-output .challenge)"
-    response="$(printf "%b" "${challenge}:${pwhash}" | sha256sum | sed 's/\s.*$//')"
-    sessionResponse="$(curl --silent -X POST http://${URL}:${PORT}/${APIPATH}/auth --data "{\"response\":\"${response}\"}" )"
-
-    # obtain validity and session ID from session response
-    validSession=$(echo "${sessionResponse}"| jq .session.valid)
-    SID=$(echo "${sessionResponse}"| jq --raw-output .session.sid)
+	# obtain validity and session ID from session response
+	validSession=$(echo "${sessionResponse}"| jq .session.valid 2>/dev/null)
+	SID=$(echo "${sessionResponse}"| jq --raw-output .session.sid 2>/dev/null)
 }
 
 GetFTLData() {
@@ -263,22 +256,18 @@ QueryAPI() {
 }
 
 
-################################# Main ################response
-while getopts ":u:p:a:s:h" args; do
-    case "${args}" in
-    u)	URL="${OPTARG}" ;;
-    p)	PORT="${OPTARG}" ;;
-    a)	APIPATH="${OPTARG}" ;;
-    s)	password="${OPTARG}" ;;
-    h)	usage
-        exit 0 ;;
-    \?)	echo "Invalid option: -${OPTARG}"
-        exit 1 ;;
-    :)	echo "Option -$OPTARG requires an argument."
-        exit 1 ;;
-    *)	usage
-        exit 0 ;;
-    esac
+################################# Main ################
+# Process all options (if present)
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    "-h" | "--help"     ) usage; exit 0;;
+    "--server"          ) URL="$2"; shift;;
+    "--port"            ) PORT="$2"; shift;;
+    "--api"             ) APIPATH="$2"; shift;;
+    "--secret"          ) password="$2"; shift;;
+    *                   ) DisplayHelp; exit 1;;
+  esac
+  shift
 done
 
 # Save current terminal settings (needed for later restore after password prompt)
