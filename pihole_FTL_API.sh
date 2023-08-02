@@ -78,16 +78,19 @@ secretRead() {
 }
 
 ConstructAPI() {
-    # If no arguments were supplied, set them to default
-    if [ -z "${URL}" ]; then
-        URL=pi.hole
-    fi
-    if [ -z "${PORT}" ]; then
-        PORT=80
-    fi
-    if [ -z "${APIPATH}" ]; then
-        APIPATH=api
-    fi
+	# If no arguments were supplied set them to default
+	if [ -z "${URL}" ]; then
+		URL=127.0.0.1
+        # when no $URL is set we assume PADD is running locally and we can get the port value from FTL directly
+        PORT="$(pihole-FTL --config webserver.port)"
+        PORT="${PORT%%,*}"
+	fi
+	if [ -z "${PORT}" ]; then
+		PORT=80
+	fi
+	if [ -z "${APIPATH}" ]; then
+		APIPATH=api
+	fi
 }
 
 TestAPIAvailability() {
