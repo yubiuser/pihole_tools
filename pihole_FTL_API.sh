@@ -242,7 +242,7 @@ QueryAPI() {
             # check if a new authentication is required (e.g. after connection to FTL has re-established)
             # GetFTLData() will return "401" if a 401 http status code is returned
             # as $password should be set already, it should automatically re-authenticate
-            ChallengeResponse
+            LoginAPI
             printf "%b" "\nNeeded to re-authenticate. Please request endpoint again.\n"
         else
             # Data was returned
