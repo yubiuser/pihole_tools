@@ -3,7 +3,7 @@
 # read previous history
 history -r ftl_api_history
 
-usage()
+DisplayHelp()
 {
     echo ""
     echo "Query FTLv6's API"
@@ -297,7 +297,7 @@ QueryAPI() {
 # Process all options (if present)
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    "-h" | "--help"     ) usage; exit 0;;
+    "-h" | "--help"     ) DisplayHelp; exit 0;;
     "--server"          ) SERVER="$2"; shift;;
     "--secret"          ) password="$2"; shift;;
     *                   ) DisplayHelp; exit 1;;
