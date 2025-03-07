@@ -7,7 +7,7 @@ For available endpoints see your local API documentation at
 This script can also connect **remotely** to your Pi-hole by using the provides options.
 
 ```shell
-Usage: ./query_FTL_API.sh [--server <DOMAIN|IP>] [--secret <secret password>]
+Usage: ./pihole_FTL_API.sh [--server <DOMAIN|IP>] [--secret <secret password>] [--2fa <2fa>]
 ```
 
 See `-h` for help.
@@ -17,7 +17,7 @@ ___
 Sample output
 
 ```shell
-./query_FTL_API.sh --server 10.0.1.24
+./pihole_FTL_API.sh --server 10.0.1.24
 Authentication failed.
 No password supplied. Please enter your password:
 

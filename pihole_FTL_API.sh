@@ -8,12 +8,13 @@ DisplayHelp()
     echo ""
     echo "Query FTLv6's API"
     echo ""
-    echo "Usage: $0 [--server <DOMAIN|IP>] [--secret <secret password>] "
+    echo "Usage: $0 [--server <DOMAIN|IP>] [--secret <secret password>] [--2fa <2fa>] "
     echo ""
     echo "To connect to FTL's API use the following options"
     echo ""
-    echo " --server <DOMAIN|IP>  		        URL or address of your Pi-hole (default: localhost)"
-    echo " --secret <secret password>		Your Pi-hole password, required to access the API"
+    echo " --server <DOMAIN|IP>             URL or address of your Pi-hole (default: localhost)"
+    echo " --secret <secret password>       Your Pi-hole password, required to access the API"
+    echo " --2fa <2fa>                      Your Pi-hole's 2FA code, if 2FA is enabled"
     echo ""
     echo "End script with Ctrl+C"
     echo ""
@@ -76,7 +77,7 @@ secretRead() {
 
 TestAPIAvailability() {
 
-    local chaos_api_list availabilityResonse cmdResult digReturnCode
+    local chaos_api_list authResponse cmdResult digReturnCode authStatus authData
 
     # Query the API URLs from FTL using CHAOS TXT
     # The result is a space-separated enumeration of full URLs
@@ -111,14 +112,29 @@ TestAPIAvailability() {
         API_URL="${API_URL#\"}"
 
         # Test if the API is available at this URL
-        availabilityResonse=$(curl -skS -o /dev/null -w "%{http_code}" "${API_URL}auth")
+        authResponse=$(curl --connect-timeout 2 -skS -w "%{http_code}" "${API_URL}auth")
+
+        # authStatus are the last 3 characters
+        # not using ${authResponse#"${authResponse%???}"}" here because it's extremely slow on big responses
+        authStatus=$(printf "%s" "${authResponse}" | tail -c 3)
+        # data is everything from response without the last 3 characters
+        authData=$(printf %s "${authResponse%???}")
 
         # Test if http status code was 200 (OK) or 401 (authentication required)
-        if [ ! "${availabilityResonse}" = 200 ] && [ ! "${availabilityResonse}" = 401 ]; then
+        if [ ! "${authStatus}" = 200 ] && [ ! "${authStatus}" = 401 ]; then
             # API is not available at this port/protocol combination
             API_PORT=""
         else
             # API is available at this URL combination
+
+            if [ "${authStatus}" = 200 ]; then
+                # API is available without authentication
+                needAuth=false
+            fi
+
+            # Check if 2FA is required
+            needTOTP=$(echo "${authData}"| jq --raw-output .session.totp 2>/dev/null)
+
             break
         fi
 
@@ -142,27 +158,57 @@ TestAPIAvailability() {
     fi
 }
 
-Authenthication() {
-    # Try to authenticate
-    LoginAPI
+LoginAPI() {
+    # Exit early if no authentication is required
+    if [ "${needAuth}" = false ]; then
+        echo "No authentication required."
+        return
+    fi
 
-    while [ "${validSession}" = false ] || [ -z "${validSession}" ] ; do
+
+    if [ -z "${password}" ]; then
+        # no password was supplied as argument
+        echo "No password supplied. Please enter your password:"
+        # secretly read the password
+        secretRead; printf '\n'
+    fi
+
+    if [ "${needTOTP}" = true ] && [ -z "${totp}" ]; then
+        # 2FA required, but no TOTP was supplied as argument
+        echo "Please enter the correct second factor."
+        echo "(Can be any number if you used the app password)"
+        read -r totp
+    fi
+
+    # Try to authenticate using the supplied password (argument or user input) and TOTP
+    Authenticate
+
+    # Try to login again until the session is valid
+    while [ ! "${validSession}" = true ]  ; do
         echo "Authentication failed."
 
-        # no password was supplied as argument
-        if [ -z "${password}" ]; then
-            echo "No password supplied. Please enter your password:"
-        else
-            echo "Wrong password supplied, please enter the correct password:"
+        # Print the error message if there is one
+        if  [ ! "${sessionError}" = "null"  ]; then
+            echo "Error: ${sessionError}"
+        fi
+        # Print the session message if there is one
+        if  [ ! "${sessionMessage}" = "null"  ]; then
+            echo "Error: ${sessionMessage}"
         fi
 
-        # secretly read the password
-        secretRead
+        echo "Please enter the correct password:"
 
-        echo ""
+        # secretly read the password
+        secretRead; printf '\n'
+
+        if [ "${needTOTP}" = true ]; then
+            echo "Please enter the correct second factor:"
+            echo "(Can be any number if you used the app password)"
+            read -r totp
+        fi
 
         # Try to authenticate again
-        LoginAPI
+        Authenticate
     done
 
     # Loop exited, authentication was successful
@@ -174,40 +220,50 @@ DeleteSession() {
     # if a valid Session exists (no password required or successful authenthication) and
     # SID is not null (successful authenthication only), delete the session
     if [ "${validSession}" = true ] && [ ! "${SID}" = null ]; then
-        # Try to delte the session. Omitt the output, but get the http status code
-        deleteResponse=$(curl -skS -o /dev/null -w "%{http_code}" -X DELETE "${API_URL}auth"  -H "Accept: application/json" -H "sid: ${SID}")
+        # Try to delete the session. Omit the output, but get the http status code
+        deleteResponse=$(curl --connect-timeout 2 -skS -o /dev/null -w "%{http_code}" -X DELETE "${API_URL}auth"  -H "Accept: application/json" -H "sid: ${SID}")
 
+        printf "\n\n"
         case "${deleteResponse}" in
             "204") printf "%b" "Session successfully deleted.\n";;
             "401") printf "%b" "Logout attempt without a valid session. Unauthorized!\n";;
          esac;
+    else
+        # no session to delete, just print a newline for nicer output
+        echo
     fi
 
 }
 
-LoginAPI() {
-    sessionResponse="$(curl -skS -X POST "${API_URL}auth" --data "{\"password\":\"${password}\"}" )"
+Authenticate() {
+    sessionResponse="$(curl --connect-timeout 2 -skS -X POST "${API_URL}auth" --user-agent "pihole_FTL_API.sh" --data "{\"password\":\"${password}\", \"totp\":${totp:-null}}" )"
 
     if [ -z "${sessionResponse}" ]; then
-        echo "No response from FTL server. Please check connectivity and use the options to set the server domain/IP"
+        echo "No response from FTL server. Please check connectivity and use the options to set the API URL"
         echo "Usage: $0 [--server <domain|IP>]"
-    exit 1
-  fi
+        exit 1
+    fi
+    # obtain validity, session ID and sessionMessage from session response
+    validSession=$(echo "${sessionResponse}"| jq .session.valid 2>/dev/null)
+    SID=$(echo "${sessionResponse}"| jq --raw-output .session.sid 2>/dev/null)
+    sessionMessage=$(echo "${sessionResponse}"| jq --raw-output .session.message 2>/dev/null)
 
-	# obtain validity and session ID from session response
-	validSession=$(echo "${sessionResponse}"| jq .session.valid 2>/dev/null)
-	SID=$(echo "${sessionResponse}"| jq --raw-output .session.sid 2>/dev/null)
+    # obtain the error message from the session response
+    sessionError=$(echo "${sessionResponse}"| jq --raw-output .error.message 2>/dev/null)
 }
 
 GetFTLData() {
     local response
+    local data
+    local status
+
     # get the data from querying the API as well as the http status code
-	response=$(curl -skS -w "%{http_code}" -X GET "${API_URL}$1" -H "Accept: application/json" -H "sid: ${SID}" )
+    response=$(curl --connect-timeout 2 -sk -w "%{http_code}" -X GET "${API_URL}$1" -H "Accept: application/json" -H "sid: ${SID}" )
 
     # status are the last 3 characters
     # not using ${response#"${response%???}"}" here because it's extremely slow on big responses
     status=$(printf "%s" "${response}" | tail -c 3)
-    # data is everything from repsonse without the last 3 characters
+    # data is everything from response without the last 3 characters
     data=$(printf %s "${response%???}")
 
     if [ "${status}" = 200 ]; then
@@ -301,6 +357,7 @@ while [ "$#" -gt 0 ]; do
     "-h" | "--help"     ) DisplayHelp; exit 0;;
     "--server"          ) SERVER="$2"; shift;;
     "--secret"          ) password="$2"; shift;;
+    "--2fa"             ) totp="$2"; shift;;
     *                   ) DisplayHelp; exit 1;;
   esac
   shift
@@ -318,7 +375,7 @@ trap sig_cleanup INT QUIT TERM
 TestAPIAvailability
 
 # Authenticate with the server
-Authenthication
+LoginAPI
 
 # Query the API
 QueryAPI
